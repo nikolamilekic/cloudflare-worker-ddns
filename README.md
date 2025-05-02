@@ -33,3 +33,28 @@
     ```sh
     inadyn --foreground --once --force --loglevel debug --config /run/ddns-ppp0-inadyn.conf
     ```
+
+## Setup with EdgeOS
+
+> [!NOTE]
+> Tested on EdgeRouter ER-x with EdgeOS v3.0.0-rc.9
+
+ 1. Log in to the EdgeOS web interface.
+ 2. Follow the steps on the [Help Center](https://help.uisp.com/hc/en-us/articles/22591228654103-EdgeRouter-Built-in-Dynamic-DNS) to configure DDNS
+ 3. Set the settings accordingly
+    ```sh
+    # the DNS record to update, must be in the `DDNS_RECORD_ALLOWLIST` if set.
+    set service dns dynamic interface eth0 service cloudflare-worker host-name <host>
+    # same as the DDNS_USERNAME worker variable
+    set service dns dynamic interface eth0 service cloudflare-worker login <username>
+    # same as the DDNS_PASSWORD worker variable.
+    set service dns dynamic interface eth0 service cloudflare-worker password <password>
+    # /nic/update?hostname=%h&myip=%i is automatically populated in EdgeOS
+    set service dns dynamic interface eth0 service cloudflare-worker server <worker-name>.<subdomain>.workers.dev
+    # setting protocol to "custom" renders an error
+    set service dns dynamic interface eth0 service cloudflare-worker protocol dyndns2
+    ```
+  4. Test the configuration by manually triggering a DDNS update (optional):
+     ```sh
+     update dns dynamic interface eth0
+     ```
