@@ -154,6 +154,30 @@ const updateRecord = async (apiToken, zoneId, recordId, recordName, recordType, 
   return true;
 };
 
+const addRecord = async (apiToken, zoneId, recordName, recordType, recordIp) => {
+  const url = new URL(`${CF_API_ENDPOINT}/zones/${zoneId}/dns_records`);
+
+  const addRecordResponse = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: recordName,
+      type: recordType,
+      content: recordIp,
+      ttl: 1,
+      proxied: false,
+    }),
+  });
+  if (!addRecordResponse.ok) {
+    throw new Error(`Failed to add record: ${recordName} (${recordType}) -> ${addRecordResponse.statusText}`);
+  }
+
+  return true;
+};
+
 /**
  * Timing-safe string comparison to prevent timing attacks.
  * @param {string} a First string.
@@ -240,11 +264,14 @@ export default {
       let recordId;
       console.debug(`Fetching record: ${recordName} (${recordType})`);
       recordId = await getRecordId(apiToken, zoneId, recordName, recordType);
-      if (!recordId) {
-        return new DDNSResponse(500, `Record not found: ${recordName} (${recordType})`);
+      if (recordId) {
+        console.debug(`Updating record: ${recordName} (${recordType}) -> ${recordIp}`);
+        await updateRecord(apiToken, zoneId, recordId, recordName, recordType, recordIp);
+      } else {
+        console.debug(`Adding record: ${recordName} (${recordType}) -> ${recordIp}`);
+        await addRecord(apiToken, zoneId, recordName, recordType, recordIp);
       }
-      console.debug(`Updating record: ${recordName} (${recordType}) -> ${recordIp}`);
-      await updateRecord(apiToken, zoneId, recordId, recordName, recordType, recordIp);
+
       return new DDNSResponse(200, `Ok`);
     } catch (/** @type {any} */ error) {
       console.error(error?.message);
