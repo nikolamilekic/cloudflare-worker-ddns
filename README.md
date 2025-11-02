@@ -9,7 +9,6 @@
  3. Set the following [variables and secrets](https://developers.cloudflare.com/workers/configuration/secrets/#via-the-dashboard) in the worker dashboard:
     - `DDNS_USERNAME`: a username for the Dynamic DNS service.
     - `DDNS_PASSWORD`: a password for the Dynamic DNS service.
-    - `DDNS_RECORD_ALLOWLIST`: a comma-separated list of DNS record(s) that the Dynamic DNS service is allowed to update (optional).
     - `CF_API_TOKEN`: a [Cloudflare API token](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/) with the `Zone.DNS:Edit` permission.
  4. Test the worker with the following command (optional):
     ```sh
@@ -25,7 +24,7 @@
  2. Navigate to `Settings` -> `Internet` -> WAN interface -> `Advanced` -> `Dynamic DNS`.
  3. Set the following options:
     - `Service`: `custom`.
-    - `Hostname`: the DNS record to update, must be in the `DDNS_RECORD_ALLOWLIST` if set.
+    - `Hostname`: the DNS record to update
     - `Username`: same as the `DDNS_USERNAME` worker variable.
     - `Password`: same as the `DDNS_PASSWORD` worker variable.
     - `Server`: `<worker-name>.<subdomain>.workers.dev/nic/update?hostname=%h&myip=%i`, **do not include** the `https://` scheme (it is added automatically), `%h` and `%i` are placeholders that UniFi OS automatically fills in.
@@ -43,7 +42,7 @@
  2. Follow the steps on the [Help Center](https://help.uisp.com/hc/en-us/articles/22591228654103-EdgeRouter-Built-in-Dynamic-DNS) to configure DDNS
  3. Set the settings accordingly
     ```sh
-    # the DNS record to update, must be in the `DDNS_RECORD_ALLOWLIST` if set.
+    # the DNS record to update
     set service dns dynamic interface eth0 service cloudflare-worker host-name <host>
     # same as the DDNS_USERNAME worker variable
     set service dns dynamic interface eth0 service cloudflare-worker login <username>

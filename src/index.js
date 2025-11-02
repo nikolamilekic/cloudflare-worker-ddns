@@ -1,6 +1,3 @@
-// Dynamic DNS update service for Cloudflare Workers as specified by DynDNS API:
-// https://help.dyn.com/remote-access-api/perform-update/
-
 /**
  * Cloudflare API endpoint URL.
  * @see https://developers.cloudflare.com/api
@@ -194,22 +191,6 @@ class DDNSResponse extends Response {
   }
 }
 
-/**
- * Custom Error class for DDNS errors.
- * @extends Error
- * @property {string} code The error code.
- */
-class DDNSError extends Error {
-  /**
-   * @param {string} code The error code.
-   * @param {string} message The error message.
-   */
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-}
-
 export default {
   /**
    * Fetch event handler.
@@ -220,109 +201,54 @@ export default {
    */
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname !== "/nic/update") {
-      console.error("Invalid request path");
-      return new Response(null, { status: 404 });
-    }
-
-    if (!["GET", "HEAD", "POST"].includes(request.method)) {
-      console.error("Invalid request method");
-      return new DDNSResponse(405, "badagent");
-    }
 
     const ddnsUsername = env.DDNS_USERNAME;
     const ddnsPassword = env.DDNS_PASSWORD;
-    if (!ddnsUsername || !ddnsPassword) {
-      console.error("Missing DDNS_USERNAME and/or DDNS_PASSWORD variables");
-      return new DDNSResponse(500, "911");
+    const apiToken = env.CF_API_TOKEN;
+
+    if (!ddnsUsername || !ddnsPassword || !apiToken) {
+      return new DDNSResponse(500, "Missing DDNS_USERNAME, DDNS_PASSWORD, or CF_API_TOKEN.");
     }
 
     const authReceived = request.headers.get("Authorization") ?? "";
     const authExpected = `Basic ${btoa(`${ddnsUsername}:${ddnsPassword}`)}`;
     if (!timingSafeEqual(authReceived, authExpected)) {
       console.error("Invalid request credentials");
-      return new DDNSResponse(401, "badauth");
+      return new DDNSResponse(401, "Unauthorized");
     }
 
-    const recordNames = url.searchParams.get("hostname")?.toLowerCase().split(",");
-    const recordIps = (url.searchParams.get("myip") ?? request.headers.get("CF-Connecting-IP"))?.toLowerCase().split(",");
-    if (!recordNames || !recordIps) {
+    const recordName = url.searchParams.get("hostname")?.toLowerCase();
+    const recordIp = (url.searchParams.get("ip") ?? request.headers.get("CF-Connecting-IP"))?.toLowerCase();
+    if (!recordName || !recordIp) {
       console.error("Missing request parameters");
-      return new DDNSResponse(400, "badagent");
+      return new DDNSResponse(400, "Bad Request");
     }
 
-    const recordAllowlist = env.DDNS_RECORD_ALLOWLIST?.toLowerCase().split(",");
-    if (recordAllowlist && recordNames.some((r) => !recordAllowlist.includes(r))) {
-      console.error("Record not allowed");
-      return new DDNSResponse(403, "abuse");
-    }
-
-    const apiToken = env.CF_API_TOKEN;
-    if (!apiToken) {
-      console.error("Missing CF_API_TOKEN variable");
-      return new DDNSResponse(500, "911");
-    }
-
-    const recordUpdates = [];
-    for (const recordName of recordNames) {
-      try {
-        let zoneId;
-        const recordNameParts = recordName.split(".");
-        for (let i = recordNameParts.length - 2; i >= 0; i--) {
-          const zoneName = recordNameParts.slice(i).join(".");
-          try {
-            console.debug(`Fetching zone: ${zoneName}`);
-            zoneId = await getZoneId(apiToken, zoneName);
-          } catch (/** @type {any} */ error) {
-            throw new DDNSError("911", error?.message);
-          }
-          if (zoneId) break;
-        }
-        if (!zoneId) {
-          throw new DDNSError("nohost", `Zone not found for record: ${recordName}`);
-        }
-
-        let recordUpdateCount = 0;
-        for (const recordIp of recordIps) {
-          const recordType = recordIp.includes(":") ? "AAAA" : "A";
-
-          let recordId;
-          try {
-            console.debug(`Fetching record: ${recordName} (${recordType})`);
-            recordId = await getRecordId(apiToken, zoneId, recordName, recordType);
-          } catch (/** @type {any} */ error) {
-            throw new DDNSError("911", error?.message);
-          }
-          if (!recordId) {
-            throw new DDNSError("nohost", `Record not found: ${recordName} (${recordType})`);
-          }
-
-          let recordUpdated;
-          try {
-            console.debug(`Updating record: ${recordName} (${recordType}) -> ${recordIp}`);
-            recordUpdated = await updateRecord(apiToken, zoneId, recordId, recordName, recordType, recordIp);
-          } catch (/** @type {any} */ error) {
-            throw new DDNSError("911", error?.message);
-          }
-          if (recordUpdated) {
-            recordUpdateCount++;
-          }
-        }
-
-        recordUpdates.push(`${recordUpdateCount > 0 ? "good" : "nochg"} ${recordIps.join(",")}`);
-      } catch (/** @type {any} */ error) {
-        console.error(error?.message);
-        recordUpdates.push(error instanceof DDNSError ? error.code : "911");
+    try {
+      let zoneId;
+      const recordNameParts = recordName.split(".");
+      for (let i = recordNameParts.length - 2; i >= 0; i--) {
+        const zoneName = recordNameParts.slice(i).join(".");
+        console.debug(`Fetching zone: ${zoneName}`);
+        zoneId = await getZoneId(apiToken, zoneName);
+        if (zoneId) break;
       }
+      if (!zoneId) {
+        return new DDNSResponse(500, `Zone not found for record: ${recordName}`);
+      }
+      const recordType = recordIp.includes(":") ? "AAAA" : "A";
+      let recordId;
+      console.debug(`Fetching record: ${recordName} (${recordType})`);
+      recordId = await getRecordId(apiToken, zoneId, recordName, recordType);
+      if (!recordId) {
+        return new DDNSResponse(500, `Record not found: ${recordName} (${recordType})`);
+      }
+      console.debug(`Updating record: ${recordName} (${recordType}) -> ${recordIp}`);
+      await updateRecord(apiToken, zoneId, recordId, recordName, recordType, recordIp);
+      return new DDNSResponse(200, `Ok`);
+    } catch (/** @type {any} */ error) {
+      console.error(error?.message);
+      return new DDNSResponse(500, error?.message);
     }
-
-    const recordBadUpdates = recordUpdates.filter((r) => !/^(good|nochg) /.test(r));
-    if (recordBadUpdates.length > 0) {
-      console.error(`Failed to update ${recordBadUpdates.length} out of ${recordUpdates.length} record(s)`);
-      return new DDNSResponse(500, recordUpdates.join("\n"));
-    }
-
-    console.info(`Updated ${recordUpdates.length} record(s)`);
-    return new DDNSResponse(200, recordUpdates.join("\n"));
   },
 };
